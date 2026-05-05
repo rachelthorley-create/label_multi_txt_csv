@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Label Generator (CSV + JSON)</title>
+
+<style>
+body{font-family:Arial,Helvetica,sans-serif;margin:18px;display:flex;flex-direction:column;align-items:center}
+form{width:100%;max-width:900px}
+label{display:block;margin:6px 0}
+input,select{width:100%;padding:6px;box-sizing:border-box}
+.button-row{display:flex;gap:10px;margin-top:8px;flex-wrap:wrap}
+.advanced{display:none;border:1px solid #ddd;padding:10px;border-radius:6px;margin-top:8px}
+.label-block{border:1px solid #eee;padding:8px;margin:8px 0;border-radius:6px}
+#allPreviews{display:flex;flex-direction:column;gap:38px;margin-top:10px}
+canvas{width:378px;height:283px;border:1px solid #ccc;border-radius:6px}
+</style>
+</head>
+
+<body>
+
+<h2>Label Generator v1.30 (CSV Enabled)</h2>
+
+<form onsubmit="return false;">
+
+<!-- CSV Upload -->
+<h3>Upload CSV</h3>
+<label>
+Upload CSV file:
+<input type="file" id="csvFile" accept=".csv">
+</label>
+
+<hr>
+
+<h3>Label 1 (Manual Entry)</h3>
+<label>Line 1: <input id="line1"></label>
+<label>Line 2: <input id="line2"></label>
+<label>Line 3: <input id="line3"></label>
+<label>Quantity: <input id="qty1" type="number" value="1"></label>
+
+<div class="button-row">
+<button id="previewBtn">Preview</button>
+<button id="downloadBtn">Download JSON</button>
+</div>
+
+</form>
+
+<h3>Total labels</h3>
+<input id="numLabels" type="number" value="1">
+
+<div id="labelsContainer"></div>
+<div id="allPreviews"></div>
+
+<script>
+const mmToPx=mm=>Math.round(mm*3.78);
+
+const csvFile=document.getElementById('csvFile');
+const numLabelsEl=document.getElementById('numLabels');
+const labelsContainer=document.getElementById('labelsContainer');
+const allPreviews=document.getElementById('allPreviews');
+
+const line1=document.getElementById('line1');
+const line2=document.getElementById('line2');
+const line3=document.getElementById('line3');
+const qty1=document.getElementById('qty1');
+
+/* ---------- CSV PARSER ---------- */
+csvFile.addEventListener('change',handleCSV);
+
+function handleCSV(e){
+  const file=e.target.files[0];
+  if(!file) return;
+
+  const reader=new FileReader();
+  reader.onload=function(evt){
+    const text=evt.target.result;
+    const rows=parseCSV(text);
+
+    if(rows.length===0) return;
+
+    // Set label count
+    numLabelsEl.value=rows.length;
+    renderLabelInputs();
+
+    // Fill labels
+    rows.forEach((row,i)=>{
+      const qty=parseInt(row[1]||1);
+      const l1=row[2]||'';
+      const l2=row[3]||'';
+      const l3=row[4]||'';
+
+      if(i===0){
+        line1.value=l1;
+        line2.value=l2;
+        line3.value=l3;
+        qty1.value=qty;
+      }else{
+        document.querySelectorAll('.multi1')[i-1].value=l1;
+        document.querySelectorAll('.multi2')[i-1].value=l2;
+        document.querySelectorAll('.multi3')[i-1].value=l3;
+        document.querySelectorAll('.qty')[i-1].value=qty;
+      }
+    });
+  };
+  reader.readAsText(file);
+}
+
+/* simple CSV parser */
+function parseCSV(text){
+  return text.trim().split('\n').map(line=>{
+    return line.split(',').map(cell=>cell.trim());
+  });
+}
+
+/* ---------- RENDER LABEL INPUTS ---------- */
+function renderLabelInputs(){
+  const n=Math.max(1,parseInt(numLabelsEl.value||1));
+  labelsContainer.innerHTML='';
+  for(let i=2;i<=n;i++){
+    const div=document.createElement('div');
+    div.className='label-block';
+    div.innerHTML=`
+      <h4>Label ${i}</h4>
+      <input class="multi1" placeholder="Line 1">
+      <input class="multi2" placeholder="Line 2">
+      <input class="multi3" placeholder="Line 3">
+      <input class="qty" type="number" value="1">
+    `;
+    labelsContainer.appendChild(div);
+  }
+}
+
+/* ---------- COLLECT DATA ---------- */
+function collectData(){
+  const data={labels:[]};
+
+  data.labels.push({
+    name:"Label 1",
+    qty:parseInt(qty1.value||1),
+    lines:{
+      line1:{text:line1.value},
+      line2:{text:line2.value},
+      line3:{text:line3.value}
+    }
+  });
+
+  const m1=document.querySelectorAll('.multi1');
+  const m2=document.querySelectorAll('.multi2');
+  const m3=document.querySelectorAll('.multi3');
+  const mq=document.querySelectorAll('.qty');
+
+  for(let i=0;i<m1.length;i++){
+    data.labels.push({
+      name:`Label ${i+2}`,
+      qty:parseInt(mq[i].value||1),
+      lines:{
+        line1:{text:m1[i].value},
+        line2:{text:m2[i].value},
+        line3:{text:m3[i].value}
+      }
+    });
+  }
+
+  return data;
+}
+
+/* ---------- DRAW ---------- */
+function drawLabel(lbl){
+  const c=document.createElement('canvas');
+  c.width=378;
+  c.height=283;
+  const ctx=c.getContext('2d');
+
+  ctx.fillStyle='#000';
+  ctx.fillRect(0,0,c.width,c.height);
+
+  ctx.fillStyle='#fff';
+  ctx.textAlign='center';
+
+  ctx.font='bold 40px Arial';
+  ctx.fillText(lbl.lines.line1.text,189,100);
+
+  ctx.font='24px Arial';
+  ctx.fillText(lbl.lines.line2.text,189,150);
+
+  ctx.fillText(lbl.lines.line3.text,189,190);
+
+  return c;
+}
+
+/* ---------- PREVIEW ---------- */
+document.getElementById('previewBtn').onclick=function(){
+  const data=collectData();
+  allPreviews.innerHTML='';
+
+  data.labels.forEach(lbl=>{
+    const h=document.createElement('div');
+    h.textContent=`${lbl.name} (${lbl.qty})`;
+    allPreviews.appendChild(h);
+
+    const c=drawLabel(lbl);
+    allPreviews.appendChild(c);
+  });
+};
+
+/* ---------- DOWNLOAD ---------- */
+document.getElementById('downloadBtn').onclick=function(){
+  const data=collectData();
+  const blob=new Blob([JSON.stringify(data,null,2)]);
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='labels.json';
+  a.click();
+};
+
+renderLabelInputs();
+</script>
+
+</body>
+</html>
