@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Label Generator (JSON Export) — With Quantity</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     body{font-family:Arial,Helvetica,sans-serif;margin:18px;display:flex;flex-direction:column;align-items:center}
     form{width:100%;max-width:900px}
@@ -12,18 +13,24 @@
     .button-row{display:flex;gap:10px;margin-top:8px;flex-wrap:wrap}
     .advanced{display:none;border:1px solid #ddd;padding:10px;border-radius:6px;margin-top:8px}
     .label-block{border:1px solid #eee;padding:8px;margin:8px 0;border-radius:6px}
-    #allPreviews{display:flex;flex-direction:column;gap:38px;margin-top:10px}
-    canvas{width:378px;height:283px;border:1px solid #ccc;border-radius:6px}
+    #allPreviews{margin-top:10px}
+    #previewCanvas{border:1px solid #ccc;border-radius:4px;max-width:100%}
+    .preview-controls{width:100%;max-width:900px;margin:8px 0;display:flex;align-items:center;gap:10px}
     .csv-section{width:100%;max-width:900px;border:1px solid #ddd;border-radius:6px;padding:12px;margin:12px 0;box-sizing:border-box}
     .csv-section h3{margin-top:0}
     .csv-note{font-size:0.85em;color:#555;margin:4px 0 8px}
     #csvStatus{margin-top:6px;font-size:0.9em;color:#333}
     #csvStatus.ok{color:green}
     #csvStatus.err{color:red}
+    .hole-grid{display:grid;grid-template-columns:repeat(3,80px);grid-template-rows:repeat(2,34px);gap:4px;margin-top:6px}
+    .hole-grid label{margin:0;display:flex;align-items:center;justify-content:center;border:1px solid #ccc;border-radius:4px;font-size:0.82em;cursor:pointer;padding:2px 4px;text-align:center;background:#f9f9f9}
+    .hole-grid label:has(input:checked){background:#d0eaff;border-color:#4a90d9}
+    .hole-section{width:100%;max-width:900px;border:1px solid #ddd;border-radius:6px;padding:12px;margin:8px 0;box-sizing:border-box}
+    .hole-section h3{margin-top:0;margin-bottom:6px}
   </style>
 </head>
 <body>
-<h2>Label Generator v1.28</h2>
+<h2>Label Generator v1.31</h2>
 <p style="max-width:900px;text-align:center">
   Edit Label 1 and add more labels below. Click <strong>Preview Label(s)</strong> to see your labels.
   Click <strong>Download Layout Instructions</strong> to export engraving instruction file for all labels.
@@ -46,6 +53,33 @@
 </div>
 <!-- ── End CSV Upload Section ── -->
 
+<!-- ── ZIP Folder Name Section ── -->
+<div class="hole-section">
+  <h3>ZIP Folder Name</h3>
+  <p style="font-size:0.85em;color:#555;margin:0 0 6px">Labels are for: <em>(appended to today's date in the folder name)</em></p>
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <span id="datePrefixDisplay" style="font-family:monospace;font-size:0.95em"></span>
+    <input id="recipientName" type="text" placeholder="e.g. Kate" style="width:200px">
+    <span id="folderPreview" style="font-size:0.85em;color:#555"></span>
+  </div>
+</div>
+<!-- ── End ZIP Folder Name Section ── -->
+
+<!-- ── Hole Position Section ── -->
+<div class="hole-section">
+  <h3>Hole Position</h3>
+  <p style="font-size:0.85em;color:#555;margin:0 0 4px">Select one or more positions. In PNG preview: white filled circle. In SVG export: unfilled green circle.</p>
+  <div class="hole-grid">
+    <label><input type="checkbox" name="hole" value="top-left"> Top Left</label>
+    <label><input type="checkbox" name="hole" value="top-middle" checked> Top Middle</label>
+    <label><input type="checkbox" name="hole" value="top-right"> Top Right</label>
+    <label><input type="checkbox" name="hole" value="bottom-left"> Bottom Left</label>
+    <label><input type="checkbox" name="hole" value="bottom-middle"> Bottom Middle</label>
+    <label><input type="checkbox" name="hole" value="bottom-right"> Bottom Right</label>
+  </div>
+</div>
+<!-- ── End Hole Position Section ── -->
+
 <form id="mainForm" onsubmit="return false;">
   <h3>Label 1 (Primary Label)</h3>
   <label>Line 1: <input id="line1" type="text" value=""></label>
@@ -58,6 +92,7 @@
   <div class="button-row" id="topButtons">
     <button id="previewBtn" type="button">Preview Label(s)</button>
     <button id="downloadBtn" type="button">Download engraving Instruction file</button>
+    <button id="downloadSvgBtn" type="button">Download SVGs as ZIP</button>
     <button id="toggleAdvanced" type="button">Show Advanced Options</button>
   </div>
 
@@ -137,10 +172,59 @@
   <input id="numLabels" type="number" min="1" value="1">
 </label>
 <div id="labelsContainer"></div>
-<div id="allPreviews"></div>
+<div class="preview-controls">
+  <label style="margin:0">Preview columns:
+    <input id="previewCols" type="number" min="1" max="20" value="1" style="width:60px;display:inline;padding:4px">
+  </label>
+</div>
+<div id="allPreviews"><canvas id="previewCanvas" style="display:none"></canvas></div>
 
 <script>
 const mmToPx = mm => Math.round(mm * 3.78);
+
+/* ── Date / folder name ── */
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function getTodayParts(){
+  const d = new Date();
+  return { y: d.getFullYear(), m: MONTHS[d.getMonth()], day: d.getDate() };
+}
+function getFolderName(){
+  const {y,m,day} = getTodayParts();
+  const recipient = (document.getElementById('recipientName').value || '').trim().replace(/[^a-zA-Z0-9_\-]/g,'_');
+  return recipient ? `${y}_${m}_${day}_labels_${recipient}` : `${y}_${m}_${day}_labels`;
+}
+(function initDateDisplay(){
+  const {y,m,day} = getTodayParts();
+  document.getElementById('datePrefixDisplay').textContent = `${y}_${m}_${day}_labels_`;
+  function updatePreview(){ document.getElementById('folderPreview').textContent = `→ folder: ${getFolderName()}`; }
+  document.getElementById('recipientName').addEventListener('input', updatePreview);
+  updatePreview();
+})();
+
+/* Returns true only when the sole checked hole is top-middle */
+function isTopCentreOnly(){
+  const checked = [...document.querySelectorAll('input[name="hole"]:checked')].map(el => el.value);
+  return checked.length === 1 && checked[0] === 'top-middle';
+}
+function getHolePositions(params){
+  const W  = params.canvas ? params.canvas.width_mm  : 100;
+  const H  = params.canvas ? params.canvas.height_mm : 75;
+  const margin = params.canvas ? params.canvas.circle_top_mm : 6;   // same margin used for top-centre
+  const r  = params.canvas ? params.canvas.circle_diameter_mm / 2 : 3;
+  const checked = [...document.querySelectorAll('input[name="hole"]:checked')].map(el => el.value);
+  const positions = [];
+  checked.forEach(pos => {
+    let cx, cy;
+    if(pos === 'top-left')      { cx = margin + r;     cy = margin + r; }
+    else if(pos === 'top-middle')    { cx = W / 2;         cy = margin + r; }
+    else if(pos === 'top-right')     { cx = W - margin - r; cy = margin + r; }
+    else if(pos === 'bottom-left')   { cx = margin + r;     cy = H - margin - r; }
+    else if(pos === 'bottom-middle') { cx = W / 2;         cy = H - margin - r; }
+    else if(pos === 'bottom-right')  { cx = W - margin - r; cy = H - margin - r; }
+    if(cx !== undefined) positions.push({cx, cy, r});
+  });
+  return positions;
+}
 
 /* --- DOM refs --- */
 const line1 = document.getElementById('line1');
@@ -281,11 +365,14 @@ function drawLabelToCanvas(labelObj, params){
   ctx.closePath();
   ctx.fill();
 
-  // Circle
-  ctx.beginPath();
-  ctx.arc(Wpx / 2, circleTopPx + circleRPx, circleRPx, 0, Math.PI * 2);
-  ctx.fillStyle = '#fff';
-  ctx.fill();
+  // Circles (hole positions) — white filled for PNG preview
+  const holes = getHolePositions(params);
+  holes.forEach(h => {
+    ctx.beginPath();
+    ctx.arc(mmToPx(h.cx), mmToPx(h.cy), mmToPx(h.r), 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+  });
 
   // Prepare lines (keep blank line2 if line3 present)
   const lines = [];
@@ -301,10 +388,17 @@ function drawLabelToCanvas(labelObj, params){
     if(i === 1 && lines.length > 2) totalH += gap23Px;
   });
 
-  const topTextY = circleTopPx + circleRPx + topExtraPx + textShiftPx;
-  const bottomY  = Hpx - marginSidePx;
-  const avail    = bottomY - topTextY;
-  let startY     = topTextY + (avail - totalH) * 0.55 + (lines.length > 0 ? lines[0].size * 0.75 : 0);
+  let startY;
+  if(isTopCentreOnly()){
+    // Original behaviour: text sits below the top-centre hole
+    const topTextY = circleTopPx + circleRPx + topExtraPx + textShiftPx;
+    const bottomY  = Hpx - marginSidePx;
+    const avail    = bottomY - topTextY;
+    startY = topTextY + (avail - totalH) * 0.55 + (lines.length > 0 ? lines[0].size * 0.75 : 0);
+  } else {
+    // Other hole config: centre text block vertically in the full label, then apply shift
+    startY = (Hpx - totalH) / 2 + (lines.length > 0 ? lines[0].size * 0.75 : 0) + textShiftPx;
+  }
 
   ctx.fillStyle   = '#fff';
   ctx.textAlign   = 'center';
@@ -316,9 +410,9 @@ function drawLabelToCanvas(labelObj, params){
     if(ln.bold)   fontStr += 'bold ';
     fontStr += `${ln.size}px ${ln.font || 'Arial'}`;
     ctx.font = fontStr;
-    const maxWidth = Wpx - marginSidePx * 2;
+    const maxWidthPx = mmToPx(90); // hard cap: 90mm regardless of line
     const measured = ctx.measureText(ln.text).width;
-    const scaleX   = Math.min(1, maxWidth / measured);
+    const scaleX   = Math.min(1, maxWidthPx / (measured || 1));
     if(scaleX < 1){
       ctx.save();
       ctx.translate(Wpx / 2, startY);
@@ -335,18 +429,55 @@ function drawLabelToCanvas(labelObj, params){
   return c;
 }
 
-/* Preview all labels and copies */
+/* Preview all labels in a grid on a single canvas */
 function previewLabels(){
   const data = collectData();
-  allPreviews.innerHTML = '';
-  data.labels.forEach(lbl => {
-    const header = document.createElement('div');
-    header.style.fontWeight = 'bold';
-    header.style.marginTop  = '10px';
-    header.textContent = `${lbl.name} - ${lbl.qty} copies`;
-    allPreviews.appendChild(header);
-    const c = drawLabelToCanvas(lbl, data);
-    allPreviews.appendChild(c);
+  const cols = Math.max(1, parseInt(document.getElementById('previewCols').value || 1));
+
+  // Build flat list of label canvases (one per unique design, not per copy)
+  const labelCanvases = data.labels.map(lbl => ({
+    name: lbl.name,
+    qty:  lbl.qty,
+    c:    drawLabelToCanvas(lbl, data)
+  }));
+
+  if(labelCanvases.length === 0) return;
+
+  const labelW = labelCanvases[0].c.width;
+  const labelH = labelCanvases[0].c.height;
+  const gapPx  = mmToPx(5);
+  const rows    = Math.ceil(labelCanvases.length / cols);
+
+  // Extra space below each label for the name label
+  const namePad = 22;
+
+  const totalW = cols * labelW + (cols - 1) * gapPx;
+  const totalH = rows * (labelH + namePad) + (rows - 1) * gapPx;
+
+  const pc = document.getElementById('previewCanvas');
+  pc.width  = totalW;
+  pc.height = totalH;
+  pc.style.display = 'block';
+  // Scale display size to fit nicely (max 900px wide)
+  const dispW = Math.min(900, totalW);
+  pc.style.width  = dispW + 'px';
+  pc.style.height = (totalH * dispW / totalW) + 'px';
+
+  const ctx = pc.getContext('2d');
+  ctx.clearRect(0, 0, totalW, totalH);
+
+  labelCanvases.forEach((item, idx) => {
+    const col = idx % cols;
+    const row = Math.floor(idx / cols);
+    const x   = col * (labelW + gapPx);
+    const y   = row * (labelH + namePad + gapPx);
+    ctx.drawImage(item.c, x, y);
+    // Label name + qty underneath
+    ctx.fillStyle    = '#333';
+    ctx.font         = '13px Arial';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`${item.name} — ${item.qty} cop${item.qty !== 1 ? 'ies' : 'y'}`, x + labelW / 2, y + labelH + 4);
   });
 }
 
@@ -469,8 +600,148 @@ renderLabelInputs();
 [largeSize, smallSize, line3Size, gap12, gap23, textShift].forEach(el => el.addEventListener('input', updateNumericLabels));
 updateNumericLabels();
 
-previewBtn.addEventListener('click',  previewLabels);
-downloadBtn.addEventListener('click', downloadJson);
+/* ── SVG Generation ── */
+function generateLabelSVG(labelObj, params){
+  const W = params.canvas.width_mm;
+  const H = params.canvas.height_mm;
+  const r = params.canvas.corner_radius_mm;
+  const marginSide= params.canvas.margin_side_mm;
+  const topExtra  = params.canvas.top_margin_extra_mm;
+  const textShiftMm = params.global.text_shift_mm || 0;
+  const gap12Mm = params.global.gap12_mm || 0;
+  const gap23Mm = params.global.linkGaps ? params.global.gap12_mm : (params.global.gap23_mm || 0);
+
+  // Use a temporary canvas to measure text widths (same logic as canvas renderer)
+  const measureCanvas = document.createElement('canvas');
+  const mCtx = measureCanvas.getContext('2d');
+
+  // Prepare lines (same logic as drawLabelToCanvas)
+  const lines = [];
+  if(labelObj.lines.line1) lines.push(labelObj.lines.line1);
+  if(labelObj.lines.line2 || labelObj.lines.line3) lines.push(labelObj.lines.line2);
+  if(labelObj.lines.line3 && labelObj.lines.line3.text.trim() !== '') lines.push(labelObj.lines.line3);
+
+  // Compute total text block height in mm (sizes are in px from canvas, treat as pt-equivalent; keep consistent)
+  // The canvas uses px values for font size that match the mm scale via mmToPx.
+  // For SVG we output in mm directly; font-size in px on canvas ≈ font-size in pt for SVG at 96dpi.
+  // We use the same size numbers as pt in SVG (close enough for matching visual output).
+  const pxToMm = px => px / 3.78;
+
+  let totalH_mm = 0;
+  lines.forEach((ln, i) => {
+    totalH_mm += pxToMm(ln.size);
+    if(i === 0 && lines.length > 1) totalH_mm += gap12Mm;
+    if(i === 1 && lines.length > 2) totalH_mm += gap23Mm;
+  });
+
+  const circleTopSVG = params.canvas.circle_top_mm;
+  const circleRSVG   = params.canvas.circle_diameter_mm / 2;
+
+  let startY_mm;
+  if(isTopCentreOnly()){
+    // Original behaviour: text sits below the top-centre hole
+    const topTextY_mm = circleTopSVG + circleRSVG + topExtra + textShiftMm;
+    const bottomY_mm  = H - marginSide;
+    const avail_mm    = bottomY_mm - topTextY_mm;
+    startY_mm = topTextY_mm + (avail_mm - totalH_mm) * 0.55 + (lines.length > 0 ? pxToMm(lines[0].size) * 0.75 : 0);
+  } else {
+    // Other hole config: centre text block vertically in the full label, then apply shift
+    startY_mm = (H - totalH_mm) / 2 + (lines.length > 0 ? pxToMm(lines[0].size) * 0.75 : 0) + textShiftMm;
+  }
+
+  const maxTextWidth_mm = 90; // same cap as canvas renderer
+
+  // Build SVG text elements
+  let textEls = '';
+  lines.forEach((ln, i) => {
+    let fontStr = '';
+    if(ln.italic) fontStr += 'italic ';
+    if(ln.bold)   fontStr += 'bold ';
+    fontStr += `${ln.size}px ${ln.font || 'Arial'}`;
+    mCtx.font = fontStr;
+    const measuredPx = ln.text ? mCtx.measureText(ln.text).width : 0;
+    const measuredMm = pxToMm(measuredPx);
+    const scaleX = Math.min(1, maxTextWidth_mm / (measuredMm || 1));
+
+    const fontStyle  = ln.italic ? 'italic' : 'normal';
+    const fontWeight = ln.bold   ? 'bold'   : 'normal';
+    // SVG font-size: convert canvas px → mm
+    const fontSize_mm = pxToMm(ln.size);
+
+    // baseline in SVG is at startY_mm; we place text at x=W/2 centred
+    // If scaling needed, use transform="scale(scaleX,1)" around a group
+    if(scaleX < 1){
+      textEls += `<g transform="translate(${W/2},${startY_mm.toFixed(3)}) scale(${scaleX.toFixed(6)},1)">
+  <text x="0" y="0" text-anchor="middle" dominant-baseline="auto"
+    font-family="${ln.font || 'Arial'}" font-size="${fontSize_mm.toFixed(3)}mm"
+    font-style="${fontStyle}" font-weight="${fontWeight}" fill="white">${escSVG(ln.text)}</text>
+</g>\n`;
+    } else {
+      textEls += `<text x="${(W/2).toFixed(3)}" y="${startY_mm.toFixed(3)}" text-anchor="middle" dominant-baseline="auto"
+    font-family="${ln.font || 'Arial'}" font-size="${fontSize_mm.toFixed(3)}mm"
+    font-style="${fontStyle}" font-weight="${fontWeight}" fill="white">${escSVG(ln.text)}</text>\n`;
+    }
+
+    if(i === 0 && lines.length > 1) startY_mm += gap12Mm + (lines[1] ? pxToMm(lines[1].size) : 0);
+    else if(i === 1 && lines.length > 2) startY_mm += gap23Mm + (lines[2] ? pxToMm(lines[2].size) : 0);
+  });
+
+  // Holes — unfilled green circles for SVG export
+  const holes = getHolePositions(params);
+  const holeSVG = holes.map(h =>
+    `  <circle cx="${h.cx.toFixed(3)}" cy="${h.cy.toFixed(3)}" r="${h.r.toFixed(3)}" fill="none" stroke="#00cc00" stroke-width="0.5"/>`
+  ).join('\n');
+
+  // Rounded rect path (same shape as canvas)
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${W}mm" height="${H}mm" viewBox="0 0 ${W} ${H}">
+  <!-- Background -->
+  <rect x="0" y="0" width="${W}" height="${H}" rx="${r}" ry="${r}" fill="black"/>
+  <!-- Hole circles (unfilled, green outline) -->
+${holeSVG}
+  <!-- Text -->
+  ${textEls}
+</svg>`;
+  return svg;
+}
+
+function escSVG(str){
+  return (str || '')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&apos;');
+}
+
+/* Download all SVGs as a ZIP, one file per unique label design */
+async function downloadSvgZip(){
+  const data       = collectData();
+  const zip        = new JSZip();
+  const folderName = getFolderName();
+  const folder     = zip.folder(folderName);
+
+  data.labels.forEach((lbl, idx) => {
+    const svgStr  = generateLabelSVG(lbl, data);
+    const num     = String(idx + 1).padStart(2, '0');
+    const safeName= (lbl.lines.line1.text || `label_${num}`)
+                      .replace(/[^a-zA-Z0-9_\-]/g, '_')
+                      .substring(0, 40);
+    const filename= `label_${num}_${safeName}_x${lbl.qty}.svg`;
+    folder.file(filename, svgStr);
+  });
+
+  const blob = await zip.generateAsync({type:'blob'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${folderName}.zip`;
+  a.click();
+}
+/* ── End SVG Generation ── */
+
+previewBtn.addEventListener('click',     previewLabels);
+downloadBtn.addEventListener('click',    downloadJson);
+document.getElementById('downloadSvgBtn').addEventListener('click', downloadSvgZip);
 </script>
 </body>
 </html>
