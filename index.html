@@ -1,226 +1,476 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Label Generator (CSV + SVG ZIP)</title>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-
-<style>
-body{font-family:Arial;margin:18px;display:flex;flex-direction:column;align-items:center}
-form{width:100%;max-width:900px}
-label{display:block;margin:6px 0}
-input,select{width:100%;padding:6px}
-.button-row{display:flex;gap:10px;margin-top:8px;flex-wrap:wrap}
-.advanced{display:none;border:1px solid #ddd;padding:10px;margin-top:8px}
-canvas{width:378px;height:283px;border:1px solid #ccc}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Label Generator (JSON Export) — With Quantity</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:18px;display:flex;flex-direction:column;align-items:center}
+    form{width:100%;max-width:900px}
+    label{display:block;margin:6px 0}
+    input[type="text"],input[type="number"],select{width:100%;padding:6px;box-sizing:border-box}
+    .button-row{display:flex;gap:10px;margin-top:8px;flex-wrap:wrap}
+    .advanced{display:none;border:1px solid #ddd;padding:10px;border-radius:6px;margin-top:8px}
+    .label-block{border:1px solid #eee;padding:8px;margin:8px 0;border-radius:6px}
+    #allPreviews{display:flex;flex-direction:column;gap:38px;margin-top:10px}
+    canvas{width:378px;height:283px;border:1px solid #ccc;border-radius:6px}
+    .csv-section{width:100%;max-width:900px;border:1px solid #ddd;border-radius:6px;padding:12px;margin:12px 0;box-sizing:border-box}
+    .csv-section h3{margin-top:0}
+    .csv-note{font-size:0.85em;color:#555;margin:4px 0 8px}
+    #csvStatus{margin-top:6px;font-size:0.9em;color:#333}
+    #csvStatus.ok{color:green}
+    #csvStatus.err{color:red}
+  </style>
 </head>
-
 <body>
+<h2>Label Generator v1.28</h2>
+<p style="max-width:900px;text-align:center">
+  Edit Label 1 and add more labels below. Click <strong>Preview Label(s)</strong> to see your labels.
+  Click <strong>Download Layout Instructions</strong> to export engraving instruction file for all labels.
+</p>
 
-<h2>Label Generator (Full Version)</h2>
-
-<!-- CSV -->
-<input type="file" id="csvFile">
-
-<label><input type="checkbox" id="showHole" checked> Show hole</label>
-
-<form onsubmit="return false;">
-
-<label>Line 1 <input id="line1"></label>
-<label>Line 2 <input id="line2"></label>
-<label>Line 3 <input id="line3"></label>
-<label>Qty <input id="qty1" type="number" value="1"></label>
-
-<div class="button-row">
-<button id="previewBtn">Preview</button>
-<button id="downloadJson">Download JSON</button>
-<button id="downloadZip">Download SVG ZIP</button>
+<!-- ── CSV Upload Section ── -->
+<div class="csv-section">
+  <h3>Import Labels from CSV</h3>
+  <p class="csv-note">
+    Upload a 5-column CSV with columns in this order:
+    <strong>Label Number, Copies, Line 1, Line 2, Line 3</strong>.
+    The first row may be a header — it is skipped automatically if it contains non-numeric text in column 1.
+    Importing will overwrite all current label text and quantities.
+  </p>
+  <label>Choose CSV file:
+    <input type="file" id="csvFile" accept=".csv,text/csv">
+  </label>
+  <button type="button" id="csvImportBtn">Import CSV</button>
+  <div id="csvStatus"></div>
 </div>
+<!-- ── End CSV Upload Section ── -->
 
+<form id="mainForm" onsubmit="return false;">
+  <h3>Label 1 (Primary Label)</h3>
+  <label>Line 1: <input id="line1" type="text" value=""></label>
+  <label>Line 2: <input id="line2" type="text" value=""></label>
+  <label>Line 3: <input id="line3" type="text" value=""></label>
+  <label>How many of this design?
+    <input id="qty1" type="number" min="1" value="1" style="width:60px">
+  </label>
+
+  <div class="button-row" id="topButtons">
+    <button id="previewBtn" type="button">Preview Label(s)</button>
+    <button id="downloadBtn" type="button">Download engraving Instruction file</button>
+    <button id="toggleAdvanced" type="button">Show Advanced Options</button>
+  </div>
+
+  <div class="advanced" id="advancedOptions">
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px">
+        <label>Large text size (line 1): <span id="largeSizeLabel">54</span>
+          <input id="largeSize" type="range" min="20" max="100" value="54">
+        </label>
+      </div>
+      <div style="flex:1;min-width:180px">
+        <label>Small text size (line 2): <span id="smallSizeLabel">27</span>
+          <input id="smallSize" type="range" min="10" max="60" value="27">
+        </label>
+      </div>
+      <div style="flex:1;min-width:180px">
+        <label>Line 3 size: <span id="line3SizeLabel">27</span>
+          <input id="line3Size" type="range" min="10" max="60" value="27">
+        </label>
+        <label><input id="link23" type="checkbox" checked> Link line3 to line2</label>
+      </div>
+    </div>
+
+    <div style="margin-top:10px;display:flex;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px">
+        <label>Gap line1→line2: <span id="gap12Label">4</span>
+          <input id="gap12" type="range" min="0" max="20" value="4">
+        </label>
+      </div>
+      <div style="flex:1;min-width:180px">
+        <label>Gap line2→line3: <span id="gap23Label">3</span>
+          <input id="gap23" type="range" min="0" max="20" value="3">
+        </label>
+        <label><input id="linkGaps" type="checkbox"> Make gap2-3 = gap1-2</label>
+      </div>
+      <div style="flex:1;min-width:180px">
+        <label>Text vertical shift: <span id="textShiftLabel">0</span>
+          <input id="textShift" type="range" min="-20" max="20" value="0">
+        </label>
+      </div>
+    </div>
+
+    <div style="margin-top:10px;display:flex;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px">
+        <label>Line 1 font
+          <select id="font1"><option selected>Arial</option>
+            <option>Times New Roman</option><option>Trebuchet MS</option>
+            <option>Century Gothic</option><option>Lucida Handwriting</option></select>
+        </label>
+        <label><input id="bold1" type="checkbox" checked> Bold</label>
+        <label><input id="italic1" type="checkbox"> Italic</label>
+      </div>
+      <div style="flex:1;min-width:180px">
+        <label>Line 2 font
+          <select id="font2"><option selected>Arial</option>
+            <option>Times New Roman</option><option>Trebuchet MS</option>
+            <option>Century Gothic</option><option>Lucida Handwriting</option></select>
+        </label>
+        <label><input id="bold2" type="checkbox"> Bold</label>
+        <label><input id="italic2" type="checkbox" checked> Italic</label>
+      </div>
+      <div style="flex:1;min-width:180px">
+        <label>Line 3 font
+          <select id="font3"><option selected>Arial</option>
+            <option>Times New Roman</option><option>Trebuchet MS</option>
+            <option>Century Gothic</option><option>Lucida Handwriting</option></select>
+        </label>
+        <label><input id="bold3" type="checkbox"> Bold</label>
+        <label><input id="italic3" type="checkbox"> Italic</label>
+      </div>
+    </div>
+  </div>
 </form>
 
-<input id="numLabels" type="number" value="1">
+<h3>Multiple Labels</h3>
+<label>Total labels (including label 1):
+  <input id="numLabels" type="number" min="1" value="1">
+</label>
 <div id="labelsContainer"></div>
 <div id="allPreviews"></div>
 
 <script>
-const mmToPx=mm=>mm*3.78;
+const mmToPx = mm => Math.round(mm * 3.78);
 
-const csvFile=document.getElementById('csvFile');
-const showHole=document.getElementById('showHole');
+/* --- DOM refs --- */
+const line1 = document.getElementById('line1');
+const line2 = document.getElementById('line2');
+const line3 = document.getElementById('line3');
+const qty1  = document.getElementById('qty1');
+const previewBtn       = document.getElementById('previewBtn');
+const downloadBtn      = document.getElementById('downloadBtn');
+const toggleAdvancedBtn= document.getElementById('toggleAdvanced');
+const advancedOptions  = document.getElementById('advancedOptions');
+const numLabelsEl      = document.getElementById('numLabels');
+const labelsContainer  = document.getElementById('labelsContainer');
+const allPreviews      = document.getElementById('allPreviews');
 
-const line1=document.getElementById('line1');
-const line2=document.getElementById('line2');
-const line3=document.getElementById('line3');
-const qty1=document.getElementById('qty1');
+/* advanced controls */
+const largeSize  = document.getElementById('largeSize');
+const smallSize  = document.getElementById('smallSize');
+const line3Size  = document.getElementById('line3Size');
+const link23     = document.getElementById('link23');
+const gap12      = document.getElementById('gap12');
+const gap23      = document.getElementById('gap23');
+const linkGaps   = document.getElementById('linkGaps');
+const textShift  = document.getElementById('textShift');
+const font1 = document.getElementById('font1');
+const font2 = document.getElementById('font2');
+const font3 = document.getElementById('font3');
+const bold1   = document.getElementById('bold1');
+const italic1 = document.getElementById('italic1');
+const bold2   = document.getElementById('bold2');
+const italic2 = document.getElementById('italic2');
+const bold3   = document.getElementById('bold3');
+const italic3 = document.getElementById('italic3');
+const largeSizeLabel = document.getElementById('largeSizeLabel');
+const smallSizeLabel = document.getElementById('smallSizeLabel');
+const line3SizeLabel = document.getElementById('line3SizeLabel');
+const gap12Label     = document.getElementById('gap12Label');
+const gap23Label     = document.getElementById('gap23Label');
+const textShiftLabel = document.getElementById('textShiftLabel');
 
-const numLabelsEl=document.getElementById('numLabels');
-const labelsContainer=document.getElementById('labelsContainer');
-const allPreviews=document.getElementById('allPreviews');
-
-/* ---------------- CSV ---------------- */
-function parseCSV(text){
-  const rows=[]; let cur=[]; let val=''; let q=false;
-  for(let i=0;i<text.length;i++){
-    let c=text[i];
-    if(c=='"'){ if(q&&text[i+1]=='"'){val+='"';i++;} else q=!q;}
-    else if(c==','&&!q){cur.push(val);val='';}
-    else if((c=='\n'||c=='\r')&&!q){ if(val||cur.length){cur.push(val);rows.push(cur);cur=[];val='';}}
-    else val+=c;
-  }
-  if(val||cur.length){cur.push(val);rows.push(cur);}
-  return rows;
+function updateNumericLabels(){
+  largeSizeLabel.textContent = largeSize.value;
+  smallSizeLabel.textContent = smallSize.value;
+  line3SizeLabel.textContent = line3Size.value;
+  gap12Label.textContent     = gap12.value;
+  gap23Label.textContent     = gap23.value;
+  textShiftLabel.textContent = textShift.value;
 }
 
-csvFile.addEventListener('change',e=>{
-  const r=new FileReader();
-  r.onload=()=>{
-    const rows=parseCSV(r.result);
-    numLabelsEl.value=rows.length;
-    renderLabels();
+function renderLabelInputs(){
+  const n = Math.max(1, parseInt(numLabelsEl.value || 1));
+  labelsContainer.innerHTML = '';
+  for(let i = 2; i <= n; i++){
+    const block = document.createElement('div');
+    block.className = 'label-block';
+    block.innerHTML = `
+      <h4>Label ${i}</h4>
+      <label>Line 1: <input class="multi1" type="text" value=""></label>
+      <label>Line 2: <input class="multi2" type="text" value=""></label>
+      <label>Line 3: <input class="multi3" type="text" value=""></label>
+      <label>How many of this design?
+        <input class="qty" type="number" min="1" value="1" style="width:60px"></label>
+    `;
+    labelsContainer.appendChild(block);
+  }
+}
 
-    rows.forEach((row,i)=>{
-      const q=row[1]||1;
-      if(i===0){
-        line1.value=row[2]||'';
-        line2.value=row[3]||'';
-        line3.value=row[4]||'';
-        qty1.value=q;
-      }else{
-        document.querySelectorAll('.multi1')[i-1].value=row[2]||'';
-        document.querySelectorAll('.multi2')[i-1].value=row[3]||'';
-        document.querySelectorAll('.multi3')[i-1].value=row[4]||'';
-        document.querySelectorAll('.qty')[i-1].value=q;
+/* Collect all labels and qty */
+function collectData(){
+  const total = Math.max(1, parseInt(numLabelsEl.value || 1));
+  const obj = {
+    canvas:{width_mm:100,height_mm:75,corner_radius_mm:2,circle_diameter_mm:6,circle_top_mm:6,margin_side_mm:6,top_margin_extra_mm:10},
+    global:{text_shift_mm:parseFloat(textShift.value||0),gap12_mm:parseFloat(gap12.value||0),gap23_mm:parseFloat(gap23.value||0),linkGaps:linkGaps.checked,linkLine3To2:link23.checked},
+    sizes:{line1_size:parseFloat(largeSize.value),line2_size:parseFloat(smallSize.value),line3_size:link23.checked?parseFloat(smallSize.value):parseFloat(line3Size.value)},
+    fonts:{line1:font1.value,line2:font2.value,line3:font3.value,line1_bold:bold1.checked,line1_italic:italic1.checked,line2_bold:bold2.checked,line2_italic:italic2.checked,line3_bold:bold3.checked,line3_italic:italic3.checked},
+    labels:[]
+  };
+
+  // Label 1
+  obj.labels.push({
+    name:"Label 1",
+    qty:parseInt(qty1.value||1),
+    lines:{
+      line1:{text:line1.value||'',font:font1.value,size:obj.sizes.line1_size,bold:bold1.checked,italic:italic1.checked},
+      line2:{text:line2.value||'',font:font2.value,size:obj.sizes.line2_size,bold:bold2.checked,italic:italic2.checked},
+      line3:{text:line3.value||'',font:font3.value,size:obj.sizes.line3_size,bold:bold3.checked,italic:italic3.checked}
+    }
+  });
+
+  // Additional labels
+  const m1 = document.querySelectorAll('.multi1');
+  const m2 = document.querySelectorAll('.multi2');
+  const m3 = document.querySelectorAll('.multi3');
+  const mq = document.querySelectorAll('.qty');
+  for(let i = 0; i < m1.length; i++){
+    obj.labels.push({
+      name:`Label ${i+2}`,
+      qty:parseInt(mq[i].value||1),
+      lines:{
+        line1:{text:m1[i].value||'',font:font1.value,size:obj.sizes.line1_size,bold:bold1.checked,italic:italic1.checked},
+        line2:{text:m2[i].value||'',font:font2.value,size:obj.sizes.line2_size,bold:bold2.checked,italic:italic2.checked},
+        line3:{text:m3[i].value||'',font:font3.value,size:obj.sizes.line3_size,bold:bold3.checked,italic:italic3.checked}
       }
     });
-  };
-  r.readAsText(e.target.files[0]);
-});
-
-/* ---------------- Labels UI ---------------- */
-function renderLabels(){
-  labelsContainer.innerHTML='';
-  for(let i=2;i<=numLabelsEl.value;i++){
-    const d=document.createElement('div');
-    d.innerHTML=`
-      <input class="multi1">
-      <input class="multi2">
-      <input class="multi3">
-      <input class="qty" type="number" value="1">
-    `;
-    labelsContainer.appendChild(d);
   }
-}
-renderLabels();
-
-/* ---------------- Collect ---------------- */
-function collect(){
-  const arr=[];
-
-  arr.push({
-    qty:qty1.value,
-    l1:line1.value,
-    l2:line2.value,
-    l3:line3.value
-  });
-
-  document.querySelectorAll('.multi1').forEach((el,i)=>{
-    arr.push({
-      qty:document.querySelectorAll('.qty')[i].value,
-      l1:el.value,
-      l2:document.querySelectorAll('.multi2')[i].value,
-      l3:document.querySelectorAll('.multi3')[i].value
-    });
-  });
-
-  return arr;
+  return obj;
 }
 
-/* ---------------- DRAW (original style) ---------------- */
-function draw(lbl){
-  const c=document.createElement('canvas');
-  c.width=378; c.height=283;
-  const ctx=c.getContext('2d');
+/* Draw a single label canvas */
+function drawLabelToCanvas(labelObj, params){
+  const Wpx = mmToPx(params.canvas.width_mm);
+  const Hpx = mmToPx(params.canvas.height_mm);
+  const radius     = mmToPx(params.canvas.corner_radius_mm);
+  const circleRPx  = mmToPx(params.canvas.circle_diameter_mm / 2);
+  const circleTopPx= mmToPx(params.canvas.circle_top_mm);
+  const marginSidePx = mmToPx(params.canvas.margin_side_mm);
+  const topExtraPx   = mmToPx(params.canvas.top_margin_extra_mm);
+  const textShiftPx  = mmToPx(params.global.text_shift_mm || 0);
+  const gap12Px = mmToPx(params.global.gap12_mm || 0);
+  const gap23Px = mmToPx(params.global.linkGaps ? params.global.gap12_mm : params.global.gap23_mm || 0);
 
-  ctx.fillStyle='#000';
-  ctx.fillRect(0,0,378,283);
+  const c = document.createElement('canvas');
+  c.width  = Wpx;
+  c.height = Hpx;
+  const ctx = c.getContext('2d');
 
-  if(showHole.checked){
-    ctx.beginPath();
-    ctx.arc(189,30,15,0,Math.PI*2);
-    ctx.fillStyle='#fff';
-    ctx.fill();
-  }
+  // Background
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.moveTo(radius, 0);
+  ctx.lineTo(Wpx - radius, 0);
+  ctx.quadraticCurveTo(Wpx, 0, Wpx, radius);
+  ctx.lineTo(Wpx, Hpx - radius);
+  ctx.quadraticCurveTo(Wpx, Hpx, Wpx - radius, Hpx);
+  ctx.lineTo(radius, Hpx);
+  ctx.quadraticCurveTo(0, Hpx, 0, Hpx - radius);
+  ctx.lineTo(0, radius);
+  ctx.quadraticCurveTo(0, 0, radius, 0);
+  ctx.closePath();
+  ctx.fill();
 
-  ctx.fillStyle='#fff';
-  ctx.textAlign='center';
+  // Circle
+  ctx.beginPath();
+  ctx.arc(Wpx / 2, circleTopPx + circleRPx, circleRPx, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
 
-  ctx.font='bold 54px Arial';
-  ctx.fillText(lbl.l1,189,120,320);
+  // Prepare lines (keep blank line2 if line3 present)
+  const lines = [];
+  if(labelObj.lines.line1) lines.push(labelObj.lines.line1);
+  if(labelObj.lines.line2 || labelObj.lines.line3) lines.push(labelObj.lines.line2);
+  if(labelObj.lines.line3 && labelObj.lines.line3.text.trim() !== '') lines.push(labelObj.lines.line3);
 
-  ctx.font='27px Arial';
-  ctx.fillText(lbl.l2,189,180,320);
-  ctx.fillText(lbl.l3,189,220,320);
+  // Total height
+  let totalH = 0;
+  lines.forEach((ln, i) => {
+    totalH += ln.size;
+    if(i === 0 && lines.length > 1) totalH += gap12Px;
+    if(i === 1 && lines.length > 2) totalH += gap23Px;
+  });
+
+  const topTextY = circleTopPx + circleRPx + topExtraPx + textShiftPx;
+  const bottomY  = Hpx - marginSidePx;
+  const avail    = bottomY - topTextY;
+  let startY     = topTextY + (avail - totalH) * 0.55 + (lines.length > 0 ? lines[0].size * 0.75 : 0);
+
+  ctx.fillStyle   = '#fff';
+  ctx.textAlign   = 'center';
+  ctx.textBaseline= 'alphabetic';
+
+  lines.forEach((ln, i) => {
+    let fontStr = '';
+    if(ln.italic) fontStr += 'italic ';
+    if(ln.bold)   fontStr += 'bold ';
+    fontStr += `${ln.size}px ${ln.font || 'Arial'}`;
+    ctx.font = fontStr;
+    const maxWidth = Wpx - marginSidePx * 2;
+    const measured = ctx.measureText(ln.text).width;
+    const scaleX   = Math.min(1, maxWidth / measured);
+    if(scaleX < 1){
+      ctx.save();
+      ctx.translate(Wpx / 2, startY);
+      ctx.scale(scaleX, 1);
+      ctx.fillText(ln.text, 0, 0);
+      ctx.restore();
+    } else {
+      ctx.fillText(ln.text, Wpx / 2, startY);
+    }
+    if(i === 0 && lines.length > 1) startY += gap12Px + (lines[1] ? lines[1].size : 0);
+    else if(i === 1 && lines.length > 2) startY += gap23Px + (lines[2] ? lines[2].size : 0);
+  });
 
   return c;
 }
 
-/* ---------------- SVG ---------------- */
-function makeSVG(lbl){
-  return `
-<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="75mm">
-<rect width="100%" height="100%" fill="black"/>
-${showHole.checked?'<circle cx="50" cy="8" r="3" fill="white"/>' : ''}
-
-<text x="50%" y="40%" fill="white" font-size="18" text-anchor="middle" font-weight="bold">${lbl.l1}</text>
-<text x="50%" y="60%" fill="white" font-size="10" text-anchor="middle">${lbl.l2}</text>
-<text x="50%" y="75%" fill="white" font-size="10" text-anchor="middle">${lbl.l3}</text>
-
-</svg>`;
+/* Preview all labels and copies */
+function previewLabels(){
+  const data = collectData();
+  allPreviews.innerHTML = '';
+  data.labels.forEach(lbl => {
+    const header = document.createElement('div');
+    header.style.fontWeight = 'bold';
+    header.style.marginTop  = '10px';
+    header.textContent = `${lbl.name} - ${lbl.qty} copies`;
+    allPreviews.appendChild(header);
+    const c = drawLabelToCanvas(lbl, data);
+    allPreviews.appendChild(c);
+  });
 }
 
-/* ---------------- Preview ---------------- */
-previewBtn.onclick=()=>{
-  allPreviews.innerHTML='';
-  collect().forEach(l=>{
-    allPreviews.appendChild(draw(l));
-  });
-};
-
-/* ---------------- JSON ---------------- */
-downloadJson.onclick=()=>{
-  const blob=new Blob([JSON.stringify(collect(),null,2)]);
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download='labels.json';
+/* Download JSON */
+function downloadJson(){
+  const data = collectData();
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'labels.json';
   a.click();
-};
+}
 
-/* ---------------- ZIP ---------------- */
-downloadZip.onclick=async()=>{
-  const zip=new JSZip();
-  const data=collect();
+/* ── CSV Import ── */
+function parseCSV(text){
+  // Split into lines, handle \r\n and \n
+  const rawLines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+  const rows = [];
+  for(const raw of rawLines){
+    // Simple CSV parse: handles quoted fields containing commas
+    const cols = [];
+    let cur = '';
+    let inQuotes = false;
+    for(let ci = 0; ci < raw.length; ci++){
+      const ch = raw[ci];
+      if(ch === '"'){
+        inQuotes = !inQuotes;
+      } else if(ch === ',' && !inQuotes){
+        cols.push(cur.trim());
+        cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    cols.push(cur.trim());
+    rows.push(cols);
+  }
+  return rows;
+}
 
-  data.forEach((lbl,i)=>{
-    zip.file(`label_${i+1}.svg`,makeSVG(lbl));
-  });
+function applyCSVData(rows){
+  // Skip header row if first cell is non-numeric text
+  let startRow = 0;
+  if(rows.length > 0 && isNaN(parseInt(rows[0][0]))){
+    startRow = 1;
+  }
 
-  zip.file("labels.json",JSON.stringify(data,null,2));
+  const dataRows = rows.slice(startRow).filter(r => r.length >= 2);
+  if(dataRows.length === 0) throw new Error('No valid data rows found in CSV.');
 
-  const blob=await zip.generateAsync({type:"blob"});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download="labels.zip";
-  a.click();
-};
+  // Update total label count
+  numLabelsEl.value = dataRows.length;
+  renderLabelInputs();
+
+  // Populate Label 1
+  const r0 = dataRows[0];
+  qty1.value   = parseInt(r0[1]) || 1;
+  line1.value  = r0[2] || '';
+  line2.value  = r0[3] || '';
+  line3.value  = r0[4] || '';
+
+  // Populate additional labels
+  const m1 = document.querySelectorAll('.multi1');
+  const m2 = document.querySelectorAll('.multi2');
+  const m3 = document.querySelectorAll('.multi3');
+  const mq = document.querySelectorAll('.qty');
+
+  for(let i = 1; i < dataRows.length; i++){
+    const r = dataRows[i];
+    if(mq[i-1])   mq[i-1].value  = parseInt(r[1]) || 1;
+    if(m1[i-1])   m1[i-1].value  = r[2] || '';
+    if(m2[i-1])   m2[i-1].value  = r[3] || '';
+    if(m3[i-1])   m3[i-1].value  = r[4] || '';
+  }
+}
+
+document.getElementById('csvImportBtn').addEventListener('click', () => {
+  const fileInput = document.getElementById('csvFile');
+  const statusEl  = document.getElementById('csvStatus');
+  statusEl.className = '';
+  statusEl.textContent = '';
+
+  const file = fileInput.files[0];
+  if(!file){
+    statusEl.className = 'err';
+    statusEl.textContent = 'Please select a CSV file first.';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const rows = parseCSV(e.target.result);
+      applyCSVData(rows);
+      statusEl.className = 'ok';
+      const count = Math.max(1, parseInt(numLabelsEl.value || 1));
+      statusEl.textContent = `✓ Imported ${count} label${count !== 1 ? 's' : ''} successfully.`;
+    } catch(err){
+      statusEl.className = 'err';
+      statusEl.textContent = `Error: ${err.message}`;
+    }
+  };
+  reader.onerror = () => {
+    statusEl.className = 'err';
+    statusEl.textContent = 'Failed to read file.';
+  };
+  reader.readAsText(file);
+});
+/* ── End CSV Import ── */
+
+/* UI events */
+toggleAdvancedBtn.addEventListener('click', () => {
+  advancedOptions.style.display = advancedOptions.style.display === 'block' ? 'none' : 'block';
+  toggleAdvancedBtn.textContent  = advancedOptions.style.display === 'block' ? 'Hide Advanced Options' : 'Show Advanced Options';
+});
+
+numLabelsEl.addEventListener('change', renderLabelInputs);
+renderLabelInputs();
+
+[largeSize, smallSize, line3Size, gap12, gap23, textShift].forEach(el => el.addEventListener('input', updateNumericLabels));
+updateNumericLabels();
+
+previewBtn.addEventListener('click',  previewLabels);
+downloadBtn.addEventListener('click', downloadJson);
 </script>
-
-</body>
-</html>
-</script>
-
 </body>
 </html>
